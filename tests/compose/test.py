@@ -10,6 +10,9 @@ test_name=sys.argv[1]
 timeout=int(sys.argv[2])
 test_path="tests/compose/" + test_name + "/"
 compose_file=test_path + "docker-compose.yml"
+docker_registry=sys.argv[3]
+docker_user=sys.argv[4]
+docker_password=sys.argv[5]
 
 client = docker.APIClient(base_url='unix://var/run/docker.sock')
 
@@ -85,6 +88,11 @@ def hooks():
             stop(1)
 
 # Start up containers
+sys.stdout.flush()
+print(subprocess.check_output("echo " + docker_password + " | docker login " + docker_registry + " --username " + docker_user + " --password-stdin", shell=True).decode())
+print()
+sleep()
+print()
 sys.stdout.flush()
 print(subprocess.check_output("docker-compose -f " + compose_file + " up -d", shell=True).decode())
 print()

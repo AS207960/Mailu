@@ -14,14 +14,16 @@ concurrency: ci-${{ github.ref }}
 
 ###############################################
 # REQUIRED secrets
-# DOCKER_UN: ${{ secrets.Docker_Login }}
+# DOCKER_UN: ${{ secrets.DOCKER_LOGIN }}
 #    Username of docker login for pushing the images to repo $DOCKER_ORG and $DOCKER_ORG_TESTS
-# DOCKER_PW: ${{ secrets.Docker_Password }}
+# DOCKER_PW: ${{ secrets.DOCKER_PASSWORD }}
 #    Password of docker login for pushing the images to repo $DOCKER_ORG and $DOCKER_ORG_TESTS
 # DOCKER_ORG: ${{ secrets.DOCKER_ORG }}
 #    The docker repository where the images are pushed to.
 # DOCKER_ORG_TESTS: ${{ secrets.DOCKER_ORG_TESTS }}
 #    The docker repository for test images. Only used for the branch TESTING (BORS try).
+# DOCKER_REGISTRY: ${{ secrets.DOCKER_REGISTRY }}
+#    The docker-compatible registry for deployment of docker images. Must end with a '/'
 # Add the above secrets to your github repo to determine where the images will be pushed.
 ################################################
 # Code block that is used as one liner.
@@ -99,18 +101,20 @@ jobs:
         run: docker-compose -v
       - name: Login docker
         env:
-          DOCKER_UN: ${{ secrets.Docker_Login }}
-          DOCKER_PW: ${{ secrets.Docker_Password }}
+          DOCKER_UN: ${{ secrets.DOCKER_LOGIN }}
+          DOCKER_PW: ${{ secrets.DOCKER_PASSWORD }}
           DOCKER_ORG: ${{ env.DOCKER_ORG }}
-        run: echo "$DOCKER_PW" | docker login --username $DOCKER_UN --password-stdin
+          DOCKER_REGISTRY: ${{ secrets.DOCKER_REGISTRY }}
+        run: echo "$DOCKER_PW" | docker login $DOCKER_REGISTRY --username $DOCKER_UN --password-stdin
       - name: Build all docker images
         env:
           MAILU_VERSION: ${{ env.MAILU_VERSION }}
           PINNED_MAILU_VERSION: ${{ env.PINNED_MAILU_VERSION }}
           DOCKER_ORG: ${{ env.DOCKER_ORG }}
+          DOCKER_REGISTRY: ${{ secrets.DOCKER_REGISTRY }}
         run: docker-compose -f tests/build.yml build
       - name: Save all docker images
-        run: docker save ${{ env.DOCKER_ORG }}/admin ${{ env.DOCKER_ORG }}/clamav ${{ env.DOCKER_ORG }}/docs ${{ env.DOCKER_ORG }}/dovecot ${{ env.DOCKER_ORG }}/fetchmail ${{ env.DOCKER_ORG }}/nginx ${{ env.DOCKER_ORG }}/none ${{ env.DOCKER_ORG }}/postfix ${{ env.DOCKER_ORG }}/radicale ${{ env.DOCKER_ORG }}/rainloop ${{ env.DOCKER_ORG }}/roundcube ${{ env.DOCKER_ORG }}/rspamd ${{ env.DOCKER_ORG }}/setup ${{ env.DOCKER_ORG }}/traefik-certdumper ${{ env.DOCKER_ORG }}/unbound -o /images/images.tar.gz
+        run: docker save ${{ secrets.DOCKER_REGISTRY }}${{ env.DOCKER_ORG }}/admin ${{ secrets.DOCKER_REGISTRY }}${{ env.DOCKER_ORG }}/clamav ${{ secrets.DOCKER_REGISTRY }}${{ env.DOCKER_ORG }}/docs ${{ secrets.DOCKER_REGISTRY }}${{ env.DOCKER_ORG }}/dovecot ${{ secrets.DOCKER_REGISTRY }}${{ env.DOCKER_ORG }}/fetchmail ${{ secrets.DOCKER_REGISTRY }}${{ env.DOCKER_ORG }}/nginx ${{ secrets.DOCKER_REGISTRY }}${{ env.DOCKER_ORG }}/none ${{ secrets.DOCKER_REGISTRY }}${{ env.DOCKER_ORG }}/postfix ${{ secrets.DOCKER_REGISTRY }}${{ env.DOCKER_ORG }}/radicale ${{ secrets.DOCKER_REGISTRY }}${{ env.DOCKER_ORG }}/rainloop ${{ secrets.DOCKER_REGISTRY }}${{ env.DOCKER_ORG }}/roundcube ${{ secrets.DOCKER_REGISTRY }}${{ env.DOCKER_ORG }}/rspamd ${{ secrets.DOCKER_REGISTRY }}${{ env.DOCKER_ORG }}/setup ${{ secrets.DOCKER_REGISTRY }}${{ env.DOCKER_ORG }}/traefik-certdumper ${{ secrets.DOCKER_REGISTRY }}${{ env.DOCKER_ORG }}/unbound -o /images/images.tar.gz
 
   test-core:
     name: Perform core tests
@@ -178,11 +182,12 @@ jobs:
       - name: Copy all certs
         run: sudo -- sh -c 'mkdir -p /mailu && cp -r tests/certs /mailu && chmod 600 /mailu/certs/*'
       - name: Test core suite
-        run: python tests/compose/test.py core 2
+        run: python tests/compose/test.py core 2 ${{ secrets.DOCKER_REGISTRY }} ${{ secrets.DOCKER_LOGIN }} ${{ secrets.DOCKER_PASSWORD }}
         env:
           MAILU_VERSION: ${{ env.MAILU_VERSION }}
           PINNED_MAILU_VERSION: ${{ env.PINNED_MAILU_VERSION }}
           DOCKER_ORG: ${{ env.DOCKER_ORG }}
+          DOCKER_REGISTRY: ${{ secrets.DOCKER_REGISTRY }}
 
   test-fetchmail:
     name: Perform fetchmail tests
@@ -250,11 +255,12 @@ jobs:
       - name: Copy all certs
         run: sudo -- sh -c 'mkdir -p /mailu && cp -r tests/certs /mailu && chmod 600 /mailu/certs/*'
       - name: Test fetch
-        run: python tests/compose/test.py fetchmail 2
+        run: python tests/compose/test.py fetchmail 2 ${{ secrets.DOCKER_REGISTRY }} ${{ secrets.DOCKER_LOGIN }} ${{ secrets.DOCKER_PASSWORD }}
         env:
           MAILU_VERSION: ${{ env.MAILU_VERSION }}
           PINNED_MAILU_VERSION: ${{ env.PINNED_MAILU_VERSION }}
           DOCKER_ORG: ${{ env.DOCKER_ORG }}
+          DOCKER_REGISTRY: ${{ secrets.DOCKER_REGISTRY }}
 
   test-filters:
     name: Perform filter tests
@@ -322,11 +328,12 @@ jobs:
       - name: Copy all certs
         run: sudo -- sh -c 'mkdir -p /mailu && cp -r tests/certs /mailu && chmod 600 /mailu/certs/*'
       - name: Test clamvav
-        run: python tests/compose/test.py filters 3
+        run: python tests/compose/test.py filters 3 ${{ secrets.DOCKER_REGISTRY }} ${{ secrets.DOCKER_LOGIN }} ${{ secrets.DOCKER_PASSWORD }}
         env:
           MAILU_VERSION: ${{ env.MAILU_VERSION }}
           PINNED_MAILU_VERSION: ${{ env.PINNED_MAILU_VERSION }}
           DOCKER_ORG: ${{ env.DOCKER_ORG }}
+          DOCKER_REGISTRY: ${{ secrets.DOCKER_REGISTRY }}
 
   test-rainloop:
     name: Perform rainloop tests
@@ -394,11 +401,12 @@ jobs:
       - name: Copy all certs
         run: sudo -- sh -c 'mkdir -p /mailu && cp -r tests/certs /mailu && chmod 600 /mailu/certs/*'
       - name: Test rainloop
-        run: python tests/compose/test.py rainloop 2
+        run: python tests/compose/test.py rainloop 2 ${{ secrets.DOCKER_REGISTRY }} ${{ secrets.DOCKER_LOGIN }} ${{ secrets.DOCKER_PASSWORD }}
         env:
           MAILU_VERSION: ${{ env.MAILU_VERSION }}
           PINNED_MAILU_VERSION: ${{ env.PINNED_MAILU_VERSION }}
           DOCKER_ORG: ${{ env.DOCKER_ORG }}
+          DOCKER_REGISTRY: ${{ secrets.DOCKER_REGISTRY }}
 
   test-roundcube:
     name: Perform roundcube tests
@@ -466,11 +474,12 @@ jobs:
       - name: Copy all certs
         run: sudo -- sh -c 'mkdir -p /mailu && cp -r tests/certs /mailu && chmod 600 /mailu/certs/*'
       - name: Test roundcube
-        run: python tests/compose/test.py roundcube 2
+        run: python tests/compose/test.py roundcube 2 ${{ secrets.DOCKER_REGISTRY }} ${{ secrets.DOCKER_LOGIN }} ${{ secrets.DOCKER_PASSWORD }}
         env:
           MAILU_VERSION: ${{ env.MAILU_VERSION }}
           PINNED_MAILU_VERSION: ${{ env.PINNED_MAILU_VERSION }}
           DOCKER_ORG: ${{ env.DOCKER_ORG }}
+          DOCKER_REGISTRY: ${{ secrets.DOCKER_REGISTRY }}
 
   test-webdav:
     name: Perform webdav tests
@@ -538,11 +547,12 @@ jobs:
       - name: Copy all certs
         run: sudo -- sh -c 'mkdir -p /mailu && cp -r tests/certs /mailu && chmod 600 /mailu/certs/*'
       - name: Test webdav
-        run: python tests/compose/test.py webdav 2
+        run: python tests/compose/test.py webdav 2 ${{ secrets.DOCKER_REGISTRY }} ${{ secrets.DOCKER_LOGIN }} ${{ secrets.DOCKER_PASSWORD }}
         env:
           MAILU_VERSION: ${{ env.MAILU_VERSION }}
           PINNED_MAILU_VERSION: ${{ env.PINNED_MAILU_VERSION }}
           DOCKER_ORG: ${{ env.DOCKER_ORG }}
+          DOCKER_REGISTRY: ${{ secrets.DOCKER_REGISTRY }}
 
   deploy:
     name: Deploy images
@@ -616,9 +626,10 @@ jobs:
         run: docker load -i /images/images.tar.gz
       - name: Deploy built docker images
         env:
-          DOCKER_UN: ${{ secrets.Docker_Login }}
-          DOCKER_PW: ${{ secrets.Docker_Password }}
-          DOCKER_ORG: ${{ env.DOCKER_ORG }}
+          DOCKER_UN: ${{ secrets.DOCKER_LOGIN }}
+          DOCKER_PW: ${{ secrets.DOCKER_PASSWORD }}
+          DOCKER_ORG: ${{ secrets.DOCKER_ORG }}
+          DOCKER_REGISTRY: ${{ secrets.DOCKER_REGISTRY }}
           MAILU_VERSION: ${{ env.MAILU_VERSION }}
           PINNED_MAILU_VERSION: ${{ env.PINNED_MAILU_VERSION }}
           BRANCH: ${{ env.BRANCH }}

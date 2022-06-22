@@ -21,7 +21,7 @@ import idna
 import dns.resolver
 import dns.exception
 
-from flask import current_app as app
+from flask import current_app as app, session
 from sqlalchemy.ext import declarative
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.inspection import inspect
@@ -29,6 +29,7 @@ from werkzeug.utils import cached_property
 
 from mailu import dkim, utils
 
+from keycloak import KeycloakGetError
 
 db = flask_sqlalchemy.SQLAlchemy()
 
@@ -512,13 +513,17 @@ class User(Base, Email):
     spam_threshold = db.Column(db.Integer, nullable=False, default=80)
 
     # Flask-login attributes
-    is_authenticated = True
     is_active = True
     is_anonymous = False
+    _authenticated = True #Flask attribute would be is_authenticated but we needed to overrride this attribute for Keycloak checks
 
     def get_id(self):
         """ return users email address """
         return self.email
+
+    @property
+    def keycloak_token(self):
+        return session['keycloak_token']
 
     @property
     def destination(self):
@@ -547,6 +552,24 @@ class User(Base, Email):
             app.config["MESSAGE_RATELIMIT"], "sender", self.email
         )
 
+    @property
+    def is_authenticated(self):
+        app.logger.warn('SESSION 6: %s', session)
+        if 'keycloak_token' not in session:
+            return self._authenticated
+        else:
+            token = utils.keycloak_client.check_validity(self.keycloak_token)
+            if token is None:
+                session.pop('keycloak_token', None)
+                return False
+            session['keycloak_token'] = token
+            return True
+
+    @is_authenticated.setter
+    def is_authenticated(self, value):
+        if 'keycloak_token' not in session:
+           self._authenticated = value
+
     @classmethod
     def get_password_context(cls):
         """ create password context for hashing and verification
@@ -569,11 +592,28 @@ class User(Base, Email):
         )
         return cls._ctx
 
-    def check_password(self, password):
+    def check_password(self, password, redirect=False):
         """ verifies password against stored hash
             and updates hash if outdated
         """
         if password == '':
+            return False
+        
+        if utils.keycloak_client.is_enabled():
+            if 'keycloak_token' not in session:
+                try:
+                    app.logger.warn(session)
+                    session['keycloak_token'] = utils.keycloak_client.get_token(self.email, password)
+                except: 
+                    return self.check_password_legacy(password)
+                else:
+                    return True
+            return utils.keycloak_client.introspect(self.keycloak_token)['active']
+        else:
+            return self.check_password_legacy(password)
+
+    def check_password_legacy(self, password):
+        if self.password is None:
             return False
         cache_result = self._credential_cache.get(self.get_id())
         current_salt = self.password.split('$')[3] if len(self.password.split('$')) == 5 else None
@@ -609,12 +649,16 @@ in clear-text regardless of the presence of the cache.
             """
             self._credential_cache[self.get_id()] = (self.password.split('$')[3], passlib.hash.pbkdf2_sha256.using(rounds=1).hash(password))
         return result
+        
 
     def set_password(self, password, raw=False):
         """ Set password for user
             @password: plain text password to encrypt (or, if raw is True: the hash itself)
         """
         self.password = password if raw else User.get_password_context().hash(password)
+
+    def set_display_name(self, display_name):
+        self.displayed_name = display_name
 
     def get_managed_domains(self):
         """ return list of domains this user can manage """
@@ -641,6 +685,23 @@ in clear-text regardless of the presence of the cache.
     def get(cls, email):
         """ find user object for email address """
         return cls.query.get(email)
+        
+    @classmethod
+    def create(cls, email, password='ldap'):
+        email = email.split('@', 1)
+        domain = Domain.query.get(email[1])
+        if not domain:
+            domain = Domain(name=email[1])
+            db.session.add(domain)
+        user = User(
+            localpart=email[0],
+            domain=domain,
+            global_admin=False
+        )
+        user.set_password(password)
+        db.session.add(user)
+        db.session.commit()
+        return user
 
     @classmethod
     def login(cls, email, password):
@@ -648,6 +709,10 @@ in clear-text regardless of the presence of the cache.
         user = cls.query.get(email)
         return user if (user and user.enabled and user.check_password(password)) else None
 
+    def logout(self):
+        if 'keycloak_token' in session:
+            utils.keycloak_client.logout(self.keycloak_token)
+            session.pop('keycloak_token', None)
 
 class Alias(Base, Email):
     """ An alias is an email address that redirects to some destination.
